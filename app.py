@@ -63,9 +63,9 @@ def check_for_updates_loop(interval_seconds=5):
                     print(f"[autoupdate] Cannot determine upstream branch: {err or err_b}", flush=True)
                     time.sleep(interval_seconds)
                     continue
-                rc_u, upstream_sha, err_u = run_git([f"rev-parse", f"origin/{{branch}}"], cwd=repo_dir)
+                rc_u, upstream_sha, err_u = run_git(["rev-parse", f"origin/{branch}"], cwd=repo_dir)
                 if rc_u != 0:
-                    print(f"[autoupdate] Cannot determine origin/{{branch}} SHA: {err_u}", flush=True)
+                    print(f"[autoupdate] Cannot determine origin/{branch} SHA: {err_u}", flush=True)
                     time.sleep(interval_seconds)
                     continue
 
