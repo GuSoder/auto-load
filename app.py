@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 from flask import Flask
+from werkzeug.serving import make_server
 
 app = Flask(__name__)
 
@@ -18,6 +19,23 @@ def run_git(args, cwd=None):
                             stderr=subprocess.PIPE,
                             text=True)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+# Globals to control the HTTP server
+_server = None
+_server_thread = None
+_server_ready = threading.Event()
+
+def _serve(host, port):
+    global _server
+    _server = make_server(host, port, app)
+    _server_ready.set()
+    try:
+        _server.serve_forever()
+    finally:
+        try:
+            _server.server_close()
+        except Exception:
+            pass
 
 def check_for_updates_loop(interval_seconds=5):
     repo_dir = os.path.abspath(os.getcwd())
@@ -45,9 +63,9 @@ def check_for_updates_loop(interval_seconds=5):
                     print(f"[autoupdate] Cannot determine upstream branch: {err or err_b}", flush=True)
                     time.sleep(interval_seconds)
                     continue
-                rc_u, upstream_sha, err_u = run_git([f"rev-parse", f"origin/{branch}"], cwd=repo_dir)
+                rc_u, upstream_sha, err_u = run_git([f"rev-parse", f"origin/{{branch}}"], cwd=repo_dir)
                 if rc_u != 0:
-                    print(f"[autoupdate] Cannot determine origin/{branch} SHA: {err_u}", flush=True)
+                    print(f"[autoupdate] Cannot determine origin/{{branch}} SHA: {err_u}", flush=True)
                     time.sleep(interval_seconds)
                     continue
 
@@ -61,7 +79,22 @@ def check_for_updates_loop(interval_seconds=5):
                     time.sleep(interval_seconds)
                     continue
 
-                print("[autoupdate] Pulled latest changes. Restarting application...", flush=True)
+                print("[autoupdate] Pulled latest changes. Stopping server and restarting...", flush=True)
+
+                # Ensure server is initialized
+                _server_ready.wait(timeout=10)
+
+                # Gracefully stop HTTP server and free the port
+                try:
+                    if _server is not None:
+                        _server.shutdown()
+                except Exception as e:
+                    print(f"[autoupdate] Error during server shutdown: {e}", flush=True)
+
+                # Wait for server thread to exit
+                if _server_thread is not None:
+                    _server_thread.join(timeout=10)
+
                 # Re-exec current process
                 python = sys.executable
                 os.execv(python, [python] + sys.argv)
@@ -81,4 +114,10 @@ if __name__ == "__main__":
     start_update_thread()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "5000"))
-    app.run(host=host, port=port, use_reloader=False)
+
+    # Run the server in a dedicated thread so we can shut it down cleanly
+    _server_thread = threading.Thread(target=_serve, args=(host, port), daemon=False)
+    _server_thread.start()
+
+    # Block main thread until the server thread finishes
+    _server_thread.join()
