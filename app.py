@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 @app.get("/")
 def index():
-    return "OK"
+    return "YO"
 
 def run_git(args, cwd=None):
     result = subprocess.run(["git"] + list(args),
